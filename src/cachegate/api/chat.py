@@ -14,7 +14,6 @@ Phase 4 adds: cache lookup before provider call.
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -101,34 +100,40 @@ async def chat_completions(
             error = OpenAIErrorResponse.streaming_not_supported()
             return JSONResponse(status_code=400, content=error.model_dump())
 
+        try:
+            if hasattr(provider_router, "stream_with_resilience"):
+                stream_gen, served_provider = await provider_router.stream_with_resilience(
+                    internal_request
+                )
+            else:
+                stream_gen = provider.stream_complete(internal_request)
+                served_provider = provider_str
+        except ProviderError as exc:
+            logger.error(
+                "streaming_fallback_exhausted",
+                model=body.model,
+                status_code=exc.status_code,
+                error=str(exc),
+            )
+            err = OpenAIErrorResponse.make(
+                message=str(exc),
+                error_type="upstream_error",
+                code="provider_error",
+            )
+            return JSONResponse(status_code=502, content=err.model_dump())
+
         async def sse_event_generator() -> AsyncIterator[str]:
             try:
-                async for chunk_str in provider.stream_complete(internal_request):
+                async for chunk_str in stream_gen:
                     yield f"data: {chunk_str}\n\n"
-            except ProviderError as exc:
-                logger.error(
-                    "streaming_provider_error",
-                    provider=provider_str,
-                    status_code=exc.status_code,
-                    error=str(exc),
-                )
-                err = OpenAIErrorResponse.make(
-                    message=str(exc),
-                    error_type="upstream_error",
-                    code="provider_error",
-                )
-                yield f"data: {json.dumps(err.model_dump())}\n\n"
-                yield "data: [DONE]\n\n"
             except Exception as exc:
-                logger.exception(
-                    "unexpected_streaming_error", provider=provider_str, error=str(exc)
-                )
+                logger.exception("unexpected_streaming_midstream_error", error=str(exc))
                 yield "data: [DONE]\n\n"
 
         stream_headers = {
             "X-Request-Id": request_id,
             "X-Cache": "MISS",
-            "X-Provider": provider_str,
+            "X-Provider": served_provider,
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
@@ -139,13 +144,19 @@ async def chat_completions(
             headers=stream_headers,
         )
 
-    # Call provider
+    # Call provider with resilience (retries, circuit breaker, fallback chain)
     try:
-        internal_response = await provider.complete(internal_request)
+        if hasattr(provider_router, "execute_with_resilience"):
+            internal_response, served_provider = await provider_router.execute_with_resilience(
+                internal_request
+            )
+        else:
+            internal_response = await provider.complete(internal_request)
+            served_provider = provider_str
     except ProviderError as exc:
         logger.error(
-            "provider_error",
-            provider=provider_str,
+            "provider_error_fallbacks_exhausted",
+            model_alias=body.model,
             status_code=exc.status_code,
             error=str(exc),
         )
@@ -185,7 +196,7 @@ async def chat_completions(
     logger.info(
         "chat_completion_done",
         model_alias=body.model,
-        provider=provider_str,
+        provider=served_provider,
         cache_result=internal_response.cache_result.value,
         prompt_tokens=internal_response.usage.prompt_tokens,
         completion_tokens=internal_response.usage.completion_tokens,
