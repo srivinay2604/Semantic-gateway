@@ -44,7 +44,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
                 import importlib
 
                 st_module = importlib.import_module("sentence_transformers")
-                st_class = getattr(st_module, "SentenceTransformer")
+                st_class = st_module.SentenceTransformer
 
                 logger.info("loading_sentence_transformer_model", model=self._model_name)
                 self._model = st_class(self._model_name)

@@ -1,9 +1,24 @@
-"""Placeholder — Phase 6 fills this in.
+"""Base interface for rate limiting."""
 
-RateLimiter interface: async check(key_id: str, cost: int) -> bool.
-"""
-# Phase 6: implement RateLimiter interface
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
 
 
-def placeholder() -> None:
-    """This module is a placeholder for Phase 6."""
+class BaseRateLimiter(ABC):
+    """Abstract interface for rate limiting."""
+
+    @abstractmethod
+    async def check(
+        self,
+        key_id: str,
+        cost: int = 1,
+        rps: float = 5.0,
+        burst: int = 20,
+    ) -> tuple[bool, float, float]:
+        """Check if request is permitted.
+
+        Returns:
+            Tuple of (allowed: bool, remaining_tokens: float, retry_after_seconds: float).
+        """
+        ...

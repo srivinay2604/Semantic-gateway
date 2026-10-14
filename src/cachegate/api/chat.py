@@ -105,6 +105,10 @@ async def chat_completions(
     # Caching Layer Lookup (Phase 4 & 5)
     # -------------------------------------------------------------------------
     cache_manager = getattr(request.app.state, "cache_manager", None)
+    usage_tracker = getattr(request.app.state, "usage_tracker", None)
+    tenant_id = getattr(request.state, "tenant_id", "default")
+    key_id = getattr(request.state, "key_id", "default")
+
     cached_response = None
     cache_header = "MISS"
 
@@ -112,6 +116,7 @@ async def chat_completions(
         cached_response, cache_header = await cache_manager.get(
             internal_request,
             headers=request.headers,
+            tenant=tenant_id,
         )
 
     # Parse custom TTL header if provided
@@ -134,6 +139,16 @@ async def chat_completions(
         }
         if cached_response.cache_similarity is not None:
             headers["X-Cache-Similarity"] = str(cached_response.cache_similarity)
+
+        if usage_tracker is not None:
+            background_tasks.add_task(
+                usage_tracker.record_request,
+                key_id=key_id,
+                model=body.model,
+                prompt_tokens=cached_response.usage.prompt_tokens,
+                completion_tokens=cached_response.usage.completion_tokens,
+                is_hit=True,
+            )
 
         logger.info(
             "chat_completion_cache_hit",
@@ -330,7 +345,19 @@ async def chat_completions(
             cache_manager.put,
             internal_request,
             internal_response,
+            tenant=tenant_id,
             ttl_seconds=custom_ttl,
+        )
+
+    # Record usage in background
+    if usage_tracker is not None:
+        background_tasks.add_task(
+            usage_tracker.record_request,
+            key_id=key_id,
+            model=body.model,
+            prompt_tokens=internal_response.usage.prompt_tokens,
+            completion_tokens=internal_response.usage.completion_tokens,
+            is_hit=False,
         )
 
     # Build OpenAI-compatible response

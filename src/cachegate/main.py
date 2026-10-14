@@ -37,12 +37,16 @@ from cachegate.cache.manager import CacheManager
 from cachegate.cache.stores.base import ExactCacheStore, VectorStore
 from cachegate.cache.stores.redis_store import RedisExactStore, RedisVectorStore
 from cachegate.embeddings.base import BaseEmbedder
+from cachegate.limits.token_bucket import MemoryTokenBucketRateLimiter
+from cachegate.middleware.auth import AuthMiddleware, KeyStore
 from cachegate.middleware.metrics import MetricsMiddleware
+from cachegate.middleware.rate_limit import RateLimitMiddleware
 from cachegate.middleware.request_id import RequestIdMiddleware
 from cachegate.observability.logging import configure_logging
 from cachegate.providers.router import ProviderRouter
 from cachegate.schemas.openai import OpenAIErrorResponse
 from cachegate.settings import settings
+from cachegate.usage.tracker import UsageTracker
 
 logger = structlog.get_logger(__name__)
 
@@ -112,6 +116,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         embedder=embedder,
         settings=settings,
     )
+    app.state.key_store = KeyStore()
+    app.state.usage_tracker = UsageTracker()
+    app.state.rate_limiter = MemoryTokenBucketRateLimiter()
 
     logger.info("cachegate_ready", host="0.0.0.0", port=8000)
 
@@ -155,6 +162,8 @@ def create_app() -> FastAPI:
     )
 
     # ---- Middleware (order: last added = outermost) ----
+    application.add_middleware(RateLimitMiddleware)
+    application.add_middleware(AuthMiddleware)
     application.add_middleware(MetricsMiddleware)
     application.add_middleware(RequestIdMiddleware)
 
