@@ -67,6 +67,9 @@ class InternalUsage(BaseModel):
     total_tokens: int = 0
 
 
+TokenUsage = InternalUsage
+
+
 class InternalResponse(BaseModel):
     """Provider-agnostic chat completion response.
 

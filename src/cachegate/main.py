@@ -33,6 +33,9 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import ValidationError
 
 from cachegate.api import admin, chat, health, models
+from cachegate.cache.manager import CacheManager
+from cachegate.cache.stores.base import ExactCacheStore
+from cachegate.cache.stores.redis_store import RedisExactStore
 from cachegate.middleware.metrics import MetricsMiddleware
 from cachegate.middleware.request_id import RequestIdMiddleware
 from cachegate.observability.logging import configure_logging
@@ -64,8 +67,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Load provider router (reads config/models.yaml)
     app.state.provider_router = ProviderRouter(settings.models_config_path)
 
-    # Phase 2+: connect Redis
-    # Phase 5+: pre-load embedding model
+    # Initialize CacheManager
+    cache_store: ExactCacheStore
+    if settings.app_env == "test":
+        from cachegate.cache.stores.memory_store import MemoryExactStore
+
+        cache_store = MemoryExactStore()
+    else:
+        cache_store = RedisExactStore(redis_url=settings.redis_url)
+
+    app.state.cache_store = cache_store
+    app.state.cache_manager = CacheManager(exact_store=cache_store, settings=settings)
 
     logger.info("cachegate_ready", host="0.0.0.0", port=8000)
 
@@ -73,8 +85,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # ---- Shutdown ----
     logger.info("cachegate_shutting_down")
-    # Phase 2+: close Redis connection pool
-    # Phase 5+: unload embedding model
+    if hasattr(app.state, "cache_store") and app.state.cache_store is not None:
+        try:
+            await app.state.cache_store.close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

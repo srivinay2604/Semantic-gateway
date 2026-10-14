@@ -14,16 +14,17 @@ Phase 4 adds: cache lookup before provider call.
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from collections.abc import AsyncIterator
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from cachegate.providers.base import ProviderError
-from cachegate.schemas.internal import InternalMessage, InternalRequest
+from cachegate.schemas.internal import InternalMessage, InternalRequest, InternalResponse
 from cachegate.schemas.openai import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -50,6 +51,7 @@ router = APIRouter(prefix="/v1", tags=["chat"])
 async def chat_completions(
     request: Request,
     body: ChatCompletionRequest,
+    background_tasks: BackgroundTasks,
 ) -> Response:
     """OpenAI-compatible chat completions endpoint.
 
@@ -94,6 +96,108 @@ async def chat_completions(
         user=body.user,
     )
 
+    # Validate streaming support upfront
+    if body.stream and not provider.supports_streaming:
+        error = OpenAIErrorResponse.streaming_not_supported()
+        return JSONResponse(status_code=400, content=error.model_dump())
+
+    # -------------------------------------------------------------------------
+    # Caching Layer Lookup (Phase 4 & 5)
+    # -------------------------------------------------------------------------
+    cache_manager = getattr(request.app.state, "cache_manager", None)
+    cached_response = None
+    cache_header = "MISS"
+
+    if cache_manager is not None:
+        cached_response, cache_header = await cache_manager.get(
+            internal_request,
+            headers=request.headers,
+        )
+
+    # Parse custom TTL header if provided
+    custom_ttl: int | None = None
+    ttl_header = request.headers.get("x-cache-ttl")
+    if ttl_header:
+        try:
+            custom_ttl = int(ttl_header)
+        except ValueError:
+            pass
+
+    # Handle cache hit
+    if cached_response is not None:
+        gateway_latency_ms = round((time.monotonic() - t0) * 1000, 1)
+        headers = {
+            "X-Request-Id": request_id,
+            "X-Cache": cache_header,
+            "X-Provider": "cached",
+            "X-Gateway-Latency-Ms": str(gateway_latency_ms),
+        }
+        if cached_response.cache_similarity is not None:
+            headers["X-Cache-Similarity"] = str(cached_response.cache_similarity)
+
+        logger.info(
+            "chat_completion_cache_hit",
+            model_alias=body.model,
+            cache_result=cache_header,
+            similarity=cached_response.cache_similarity,
+            latency_ms=gateway_latency_ms,
+        )
+
+        if body.stream:
+            # Replay stream as SSE chunks
+            async def cached_sse_event_generator() -> AsyncIterator[str]:
+                words = cached_response.content.split(" ")
+                for i, w in enumerate(words):
+                    piece = w if i == len(words) - 1 else w + " "
+                    chunk_obj = {
+                        "id": f"chatcmpl-{uuid.uuid4().hex}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": body.model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": piece},
+                                "finish_reason": None if i < len(words) - 1 else "stop",
+                            }
+                        ],
+                    }
+                    yield f"data: {json.dumps(chunk_obj)}\n\n"
+                yield "data: [DONE]\n\n"
+
+            stream_headers = {
+                **headers,
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            }
+            return StreamingResponse(
+                cached_sse_event_generator(),
+                media_type="text/event-stream",
+                headers=stream_headers,
+            )
+
+        completion = ChatCompletionResponse(
+            id=f"chatcmpl-{uuid.uuid4().hex}",
+            model=body.model,
+            choices=[
+                Choice(
+                    index=0,
+                    message=ChoiceMessage(content=cached_response.content),
+                    finish_reason=cached_response.finish_reason,
+                )
+            ],
+            usage=UsageInfo(
+                prompt_tokens=cached_response.usage.prompt_tokens,
+                completion_tokens=cached_response.usage.completion_tokens,
+                total_tokens=cached_response.usage.total_tokens,
+            ),
+        )
+        return JSONResponse(content=completion.model_dump(), headers=headers)
+
+    # -------------------------------------------------------------------------
+    # Upstream Provider Execution on Cache Miss / Bypass
+    # -------------------------------------------------------------------------
     # Handle streaming
     if body.stream:
         if not provider.supports_streaming:
@@ -122,17 +226,64 @@ async def chat_completions(
             )
             return JSONResponse(status_code=502, content=err.model_dump())
 
+        accumulated_tokens: list[str] = []
+        finish_reason: list[str] = ["stop"]
+
         async def sse_event_generator() -> AsyncIterator[str]:
             try:
                 async for chunk_str in stream_gen:
                     yield f"data: {chunk_str}\n\n"
+                    if chunk_str != "[DONE]":
+                        try:
+                            parsed = json.loads(chunk_str)
+                            choices = parsed.get("choices", [])
+                            if choices:
+                                delta = choices[0].get("delta", {})
+                                if "content" in delta and delta["content"]:
+                                    accumulated_tokens.append(delta["content"])
+                                if choices[0].get("finish_reason"):
+                                    finish_reason[0] = choices[0]["finish_reason"]
+                        except Exception:
+                            pass
             except Exception as exc:
                 logger.exception("unexpected_streaming_midstream_error", error=str(exc))
                 yield "data: [DONE]\n\n"
 
+            # Post-stream accumulation cache write (spec §9.6)
+            full_text = "".join(accumulated_tokens)
+            if (
+                cache_manager is not None
+                and full_text
+                and finish_reason[0] == "stop"
+                and cache_header != "BYPASS"
+            ):
+                from cachegate.schemas.internal import CacheResult, InternalUsage
+
+                assembled_resp = InternalResponse(
+                    response_id=f"stream-{uuid.uuid4().hex}",
+                    model=body.model,
+                    content=full_text,
+                    finish_reason="stop",
+                    provider=served_provider,
+                    usage=InternalUsage(
+                        prompt_tokens=0,
+                        completion_tokens=len(accumulated_tokens),
+                        total_tokens=len(accumulated_tokens),
+                    ),
+                    cache_result=CacheResult.MISS,
+                )
+                try:
+                    await cache_manager.put(
+                        internal_request,
+                        assembled_resp,
+                        ttl_seconds=custom_ttl,
+                    )
+                except Exception as exc:
+                    logger.warning("post_stream_cache_write_failed", error=str(exc))
+
         stream_headers = {
             "X-Request-Id": request_id,
-            "X-Cache": "MISS",
+            "X-Cache": cache_header,
             "X-Provider": served_provider,
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
@@ -173,6 +324,15 @@ async def chat_completions(
         logger.exception("unexpected_provider_error", provider=provider_str, error=str(exc))
         raise HTTPException(status_code=500, detail="Internal server error") from exc
 
+    # Store into cache in background if cacheable (spec §9.4, §9.7)
+    if cache_manager is not None and cache_header != "BYPASS":
+        background_tasks.add_task(
+            cache_manager.put,
+            internal_request,
+            internal_response,
+            ttl_seconds=custom_ttl,
+        )
+
     # Build OpenAI-compatible response
     completion = ChatCompletionResponse(
         id=f"chatcmpl-{uuid.uuid4().hex}",
@@ -197,7 +357,7 @@ async def chat_completions(
         "chat_completion_done",
         model_alias=body.model,
         provider=served_provider,
-        cache_result=internal_response.cache_result.value,
+        cache_result=cache_header,
         prompt_tokens=internal_response.usage.prompt_tokens,
         completion_tokens=internal_response.usage.completion_tokens,
         latency_ms=gateway_latency_ms,
@@ -206,12 +366,10 @@ async def chat_completions(
 
     headers = {
         "X-Request-Id": request_id,
-        "X-Cache": internal_response.cache_result.value,
-        "X-Provider": internal_response.provider,
+        "X-Cache": cache_header,
+        "X-Provider": served_provider,
         "X-Gateway-Latency-Ms": str(gateway_latency_ms),
     }
-    if internal_response.cache_similarity is not None:
-        headers["X-Cache-Similarity"] = str(internal_response.cache_similarity)
 
     return JSONResponse(
         content=completion.model_dump(),

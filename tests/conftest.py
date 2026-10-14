@@ -24,6 +24,7 @@ from cachegate.settings import settings
 @pytest.fixture(autouse=True, scope="session")
 def zero_latency_for_tests() -> None:
     """Set test defaults for settings."""
+    settings.app_env = "test"
     settings.mock_latency_ms = 0
     settings.mock_latency_jitter_ms = 0
     settings.openai_base_url = "https://api.openai.com/v1"
