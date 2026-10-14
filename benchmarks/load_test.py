@@ -157,9 +157,7 @@ async def run_scenario_c(client: AsyncClient, n_requests: int = 200) -> dict[str
         "coalesced_hits": coalesced_hits,
         "duration_seconds": round(duration_s, 2),
         "throughput_req_per_sec": round(n_requests / duration_s, 1),
-        "coalescing_efficiency_pct": round(
-            ((n_requests - provider_calls) / n_requests) * 100, 1
-        ),
+        "coalescing_efficiency_pct": round(((n_requests - provider_calls) / n_requests) * 100, 1),
     }
 
 
@@ -190,15 +188,21 @@ async def main() -> None:
             print("▶ Scenario B: Running CacheGate with realistic repetition...")
             res_b = await run_scenario_b(client, n_requests=100)
             print(
-                f"  ✓ CacheGate p50: {res_b['p50_ms']}ms, p95: {res_b['p95_ms']}ms, Hit Rate: {res_b['hit_rate_pct']}%\n"
+                f"  ✓ CacheGate p50: {res_b['p50_ms']}ms, p95: {res_b['p95_ms']}ms, "
+                f"Hit Rate: {res_b['hit_rate_pct']}%\n"
             )
 
-            print("▶ Scenario C: Running cold-start stampede (200 identical concurrent requests)...")
+            print(
+                "▶ Scenario C: Running cold-start stampede (200 identical concurrent requests)..."
+            )
             res_c = await run_scenario_c(client, n_requests=200)
             print(
-                f"  ✓ Stampede: 200 concurrent requests -> {res_c['provider_calls']} upstream provider calls!"
+                f"  ✓ Stampede: 200 concurrent requests -> "
+                f"{res_c['provider_calls']} upstream provider calls!"
             )
-            print(f"  ✓ Single-flight coalescing efficiency: {res_c['coalescing_efficiency_pct']}%\n")
+            print(
+                f"  ✓ Single-flight coalescing efficiency: {res_c['coalescing_efficiency_pct']}%\n"
+            )
 
             p50_improvement = round(
                 ((float(res_a["p50_ms"]) - float(res_b["p50_ms"])) / float(res_a["p50_ms"])) * 100,
@@ -231,18 +235,22 @@ async def main() -> None:
             print("=======================================================")
             print(f"{'Metric':<35} | {'Baseline':<12} | {'CacheGate':<12} | {'Improvement':<12}")
             print("-" * 75)
-            print(
-                f"{'p50 Latency':<35} | {str(res_a['p50_ms']) + ' ms':<12} | {str(res_b['p50_ms']) + ' ms':<12} | {str(p50_improvement) + '%'}"
-            )
-            print(
-                f"{'p95 Latency':<35} | {str(res_a['p95_ms']) + ' ms':<12} | {str(res_b['p95_ms']) + ' ms':<12} | {str(p95_improvement) + '%'}"
-            )
-            print(
-                f"{'Cache Hit Rate':<35} | {'0.0%':<12} | {str(res_b['hit_rate_pct']) + '%' :<12} | {'+' + str(res_b['hit_rate_pct']) + '%'}"
-            )
-            print(
-                f"{'Cold Stampede Provider Calls':<35} | {'200':<12} | {str(res_c['provider_calls']):<12} | {'-99.5%'}"
-            )
+            s_a_p50 = f"{res_a['p50_ms']} ms"
+            s_b_p50 = f"{res_b['p50_ms']} ms"
+            s_p50_imp = f"{p50_improvement}%"
+            print(f"{'p50 Latency':<35} | {s_a_p50:<12} | {s_b_p50:<12} | {s_p50_imp}")
+
+            s_a_p95 = f"{res_a['p95_ms']} ms"
+            s_b_p95 = f"{res_b['p95_ms']} ms"
+            s_p95_imp = f"{p95_improvement}%"
+            print(f"{'p95 Latency':<35} | {s_a_p95:<12} | {s_b_p95:<12} | {s_p95_imp}")
+
+            s_b_hit = f"{res_b['hit_rate_pct']}%"
+            s_hit_imp = f"+{res_b['hit_rate_pct']}%"
+            print(f"{'Cache Hit Rate':<35} | {'0.0%':<12} | {s_b_hit:<12} | {s_hit_imp}")
+
+            calls_c = str(res_c["provider_calls"])
+            print(f"{'Cold Stampede Provider Calls':<35} | {'200':<12} | {calls_c:<12} | -99.5%")
             print("=======================================================")
             print(f"Results recorded in {output_file}\n")
 

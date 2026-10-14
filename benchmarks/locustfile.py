@@ -11,6 +11,7 @@ Workload Scenarios:
 from __future__ import annotations
 
 import random
+
 from locust import HttpUser, between, task
 
 PROMPT_POOL = [

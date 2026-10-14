@@ -1,16 +1,71 @@
-# Placeholder — Phase 10 fills this in.
-# Deploy workflow: authenticate to AWS via OIDC, build+push to ECR,
-# update ECS task definition, rolling deploy, smoke test.
-name: Deploy
+name: Deploy to AWS ECS
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   deploy:
-    name: Deploy to AWS ECS
+    name: Build, Push, and Deploy
     runs-on: ubuntu-latest
     steps:
-      - name: Placeholder
-        run: echo "Phase 10 deploy workflow not yet implemented."
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (GitHub OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: cachegate-gateway
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f Dockerfile .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition --task-definition cachegate-task-prod --query taskDefinition > task-def.json
+
+      - name: Update container image in task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-def.json
+          container-name: gateway
+          image: ${{ steps.login-ecr.outputs.registry }}/cachegate-gateway:${{ github.sha }}
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          service: cachegate-service
+          cluster: cachegate-cluster-prod
+          wait-for-service-stability: true
+
+      - name: Post-deploy smoke test
+        env:
+          ALB_URL: ${{ secrets.ALB_DNS_NAME }}
+        run: |
+          if [ -n "$ALB_URL" ]; then
+            echo "Running smoke test against $ALB_URL..."
+            curl --fail --retry 5 --retry-delay 5 http://$ALB_URL/readyz
+            echo "Smoke test passed successfully!"
+          else
+            echo "ALB_DNS_NAME not configured; skipping remote smoke test."
+          fi

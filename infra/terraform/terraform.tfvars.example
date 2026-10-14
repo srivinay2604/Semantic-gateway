@@ -1,0 +1,8 @@
+aws_region   = "us-east-1"
+environment  = "prod"
+app_name     = "cachegate"
+task_cpu     = 1024
+task_memory  = 2048
+min_capacity = 2
+max_capacity = 6
+image_tag    = "latest"

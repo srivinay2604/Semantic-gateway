@@ -14,6 +14,7 @@ Outputs:
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 import math
@@ -34,8 +35,6 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
         return 0.0
     return max(0.0, min(1.0, dot / (norm1 * norm2)))
 
-
-import asyncio
 
 async def run_evaluation() -> dict[str, object]:
     dataset_path = Path("benchmarks/datasets/faq_dataset.json")
@@ -58,7 +57,7 @@ async def run_evaluation() -> dict[str, object]:
         v1 = await embedder.embed(q1)
         v2 = await embedder.embed(q2)
 
-        # For positive paraphrases, realistic embeddings share semantic meaning (similarity 0.93 - 0.97)
+        # For positive paraphrases, realistic embeddings share semantic meaning (0.93 - 0.97)
         # For hard negatives, similarity is high but distinct (0.83 - 0.88)
         # For ordinary negatives, similarity is low (0.35 - 0.65)
         raw_sim = cosine_similarity(v1, v2)
@@ -150,7 +149,9 @@ async def run_evaluation() -> dict[str, object]:
     summary_path.write_text(json.dumps(summary, indent=2))
 
     print("\n--- Cache Quality Evaluation Summary ---")
-    print(f"Dataset: {summary['dataset_size']} pairs ({total_positives} pos, {total_negatives} neg)")
+    print(
+        f"Dataset: {summary['dataset_size']} pairs ({total_positives} pos, {total_negatives} neg)"
+    )
     print(f"Optimal Threshold: {chosen_threshold}")
     print(f"Hit Rate (Recall): {summary['hit_rate_at_threshold'] * 100:.1f}%")
     print(f"False-Hit Rate: {summary['false_hit_rate_at_threshold'] * 100:.2f}%")
