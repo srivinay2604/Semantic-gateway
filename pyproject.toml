@@ -85,6 +85,7 @@ disallow_any_generics = true
 # Pytest configuration
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
+pythonpath = ["src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--cov=src/cachegate --cov-report=term-missing --cov-report=html --cov-fail-under=85"

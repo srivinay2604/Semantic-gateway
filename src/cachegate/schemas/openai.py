@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -193,4 +193,39 @@ class ModelsListResponse(BaseModel):
     data: list[ModelObject]
 
     # Keep extra fields out of __dict__ for clean SDK compat
+    model_config = ConfigDict(extra="ignore")
+
+
+# ---------------------------------------------------------------------------
+# Streaming chunk models (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class ChatCompletionChunkDelta(BaseModel):
+    """Delta object within a streaming chunk choice."""
+
+    role: str | None = None
+    content: str | None = None
+
+
+class ChatCompletionChunkChoice(BaseModel):
+    """A single choice within a streaming chunk."""
+
+    index: int = 0
+    delta: ChatCompletionChunkDelta
+    finish_reason: Literal["stop", "length", "tool_calls", "content_filter"] | None = None
+    logprobs: Any = None
+
+
+class ChatCompletionChunk(BaseModel):
+    """OpenAI-compatible streaming chunk."""
+
+    id: str
+    object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
+    created: int = Field(default_factory=lambda: int(time.time()))
+    model: str
+    choices: list[ChatCompletionChunkChoice]
+    system_fingerprint: str | None = None
+    usage: UsageInfo | None = None
+
     model_config = ConfigDict(extra="ignore")

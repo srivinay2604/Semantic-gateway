@@ -41,39 +41,60 @@ class TestOpenAISDKCompat:
         """The openai SDK must successfully call the gateway and return a valid response."""
         raw_client, application = sdk_app_client
 
-        # We test SDK compat by making the same request the SDK would make
-        # using our raw httpx client (which uses the exact same JSON format)
-        resp = await raw_client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "mock-fast",
-                "messages": [
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": "What is the capital of France?"},
-                ],
-                "temperature": 0.0,
-                "max_tokens": 100,
-            },
-            headers={"Authorization": "Bearer dummy-api-key"},
+        from openai import AsyncOpenAI
+
+        sdk = AsyncOpenAI(
+            base_url="http://testserver/v1", api_key="test-key", http_client=raw_client
+        )
+        resp = await sdk.chat.completions.create(
+            model="mock-fast",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": "What is the capital of France?"},
+            ],
+            temperature=0.0,
+            max_tokens=100,
         )
 
-        assert resp.status_code == 200
-        data = resp.json()
+        assert resp.id.startswith("chatcmpl-")
+        assert resp.model == "mock-fast"
+        assert len(resp.choices) >= 1
+        assert resp.choices[0].message.role == "assistant"
+        assert resp.choices[0].message.content is not None
+        assert len(resp.choices[0].message.content) > 0
+        assert resp.choices[0].finish_reason == "stop"
+        assert resp.usage is not None
+        assert resp.usage.prompt_tokens > 0
 
-        # These are the fields the OpenAI SDK parses
-        assert data["object"] == "chat.completion"
-        assert data["id"].startswith("chatcmpl-")
-        assert isinstance(data["created"], int)
-        assert data["model"] == "mock-fast"
-        assert len(data["choices"]) >= 1
-        choice = data["choices"][0]
-        assert choice["message"]["role"] == "assistant"
-        assert isinstance(choice["message"]["content"], str)
-        assert len(choice["message"]["content"]) > 0
-        assert choice["finish_reason"] == "stop"
-        assert data["usage"]["prompt_tokens"] > 0
-        assert data["usage"]["completion_tokens"] > 0
-        assert data["usage"]["total_tokens"] > 0
+    @pytest.mark.asyncio
+    async def test_sdk_streaming_completion(self, sdk_app_client: tuple) -> None:
+        """The openai SDK must stream chunks from the gateway with stream=True."""
+        raw_client, application = sdk_app_client
+
+        from openai import AsyncOpenAI
+
+        sdk = AsyncOpenAI(
+            base_url="http://testserver/v1", api_key="test-key", http_client=raw_client
+        )
+        stream = await sdk.chat.completions.create(
+            model="mock-fast",
+            messages=[{"role": "user", "content": "Stream this test sentence"}],
+            stream=True,
+        )
+
+        collected_words: list[str] = []
+        finish_reasons: list[str] = []
+        async for chunk in stream:
+            assert chunk.id.startswith("chatcmpl-")
+            if chunk.choices and chunk.choices[0].delta.content:
+                collected_words.append(chunk.choices[0].delta.content)
+            if chunk.choices and chunk.choices[0].finish_reason:
+                finish_reasons.append(chunk.choices[0].finish_reason)
+
+        assert len(collected_words) > 0
+        full_text = "".join(collected_words)
+        assert len(full_text) > 0
+        assert "stop" in finish_reasons
 
     @pytest.mark.asyncio
     async def test_sdk_request_id_header(self, sdk_app_client: tuple) -> None:
@@ -96,7 +117,7 @@ class TestOpenAISDKCompat:
         resp = await raw_client.post(
             "/v1/chat/completions",
             json={
-                "model": "gpt-4o-mini",
+                "model": "mock-fast",
                 "messages": [{"role": "user", "content": "Hello from SDK test"}],
                 "stream": False,
             },
@@ -104,24 +125,6 @@ class TestOpenAISDKCompat:
         )
         assert resp.status_code == 200
         assert resp.json()["object"] == "chat.completion"
-
-    @pytest.mark.asyncio
-    async def test_sdk_stream_true_returns_400(self, sdk_app_client: tuple) -> None:
-        """Streaming requests must get a clear 400 with an error message."""
-        raw_client, _ = sdk_app_client
-        resp = await raw_client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "mock-fast",
-                "messages": [{"role": "user", "content": "Stream me"}],
-                "stream": True,
-            },
-            headers={"Authorization": "Bearer test-key"},
-        )
-        assert resp.status_code == 400
-        data = resp.json()
-        assert "error" in data
-        assert data["error"]["code"] == "streaming_not_supported"
 
     @pytest.mark.asyncio
     async def test_models_endpoint_sdk_format(self, sdk_app_client: tuple) -> None:

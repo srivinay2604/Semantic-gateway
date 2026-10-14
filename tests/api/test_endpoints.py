@@ -136,13 +136,44 @@ class TestChatCompletionsEndpoint:
         assert "x-provider" in resp.headers
 
     @pytest.mark.asyncio
-    async def test_stream_true_returns_400(self, client: AsyncClient) -> None:
+    async def test_stream_true_returns_sse_stream(self, client: AsyncClient) -> None:
         body = {**VALID_BODY, "stream": True}
         resp = await client.post(CHAT_URL, json=body)
-        assert resp.status_code == 400
-        data = resp.json()
-        assert "error" in data
-        assert "streaming" in data["error"]["message"].lower()
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
+        assert "x-request-id" in resp.headers
+        assert "x-provider" in resp.headers
+        assert "data: " in resp.text
+        assert "data: [DONE]" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_stream_unsupported_provider_returns_400(self) -> None:
+        class _NonStreamingProvider:
+            supports_streaming = False
+
+        from httpx import ASGITransport
+        from httpx import AsyncClient as _AC
+
+        from cachegate.main import create_app
+
+        test_app = create_app()
+
+        class _Router:
+            def resolve(self, _model: str) -> tuple:
+                return _NonStreamingProvider(), "legacy/provider"
+
+            def list_aliases(self) -> list:
+                return []
+
+        async with test_app.router.lifespan_context(test_app):
+            test_app.state.provider_router = _Router()
+            async with _AC(
+                transport=ASGITransport(app=test_app), base_url="http://testserver"
+            ) as test_client:
+                resp = await test_client.post(CHAT_URL, json={**VALID_BODY, "stream": True})
+                assert resp.status_code == 400
+                data = resp.json()
+                assert "streaming" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_missing_messages_returns_422(self, client: AsyncClient) -> None:

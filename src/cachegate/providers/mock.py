@@ -18,7 +18,7 @@ import hashlib
 import random
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 
 import structlog
 
@@ -28,6 +28,11 @@ from cachegate.schemas.internal import (
     InternalRequest,
     InternalResponse,
     InternalUsage,
+)
+from cachegate.schemas.openai import (
+    ChatCompletionChunk,
+    ChatCompletionChunkChoice,
+    ChatCompletionChunkDelta,
 )
 from cachegate.settings import settings
 
@@ -105,7 +110,7 @@ class MockProvider(Provider):
     test control.
     """
 
-    supports_streaming: bool = False  # Phase 2 will add streaming
+    supports_streaming: bool = True
 
     def __init__(
         self,
@@ -191,6 +196,75 @@ class MockProvider(Provider):
             provider_latency_ms=provider_latency_ms,
             provider="mock",
         )
+
+    async def stream_complete(self, request: InternalRequest) -> AsyncIterator[str]:
+        """Yield deterministic SSE JSON chunks ending with '[DONE]'."""
+        delay = self._sleep_seconds()
+        await asyncio.sleep(delay)
+
+        if self._error_rate > 0 and random.random() < self._error_rate:
+            raise ProviderError(
+                "Mock provider simulated streaming error",
+                status_code=500,
+                retryable=True,
+            )
+
+        seed = _request_seed(request)
+        reply_content = _build_reply(request.messages, seed)
+        chunk_id = f"chatcmpl-mock-{uuid.uuid4().hex}"
+        model = "mock/echo"
+
+        words = reply_content.split(" ")
+        token_delay = 0.005 if delay > 0 else 0.0
+
+        # Chunk 1: role announcement
+        first_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[
+                ChatCompletionChunkChoice(
+                    index=0,
+                    delta=ChatCompletionChunkDelta(role="assistant", content=""),
+                    finish_reason=None,
+                )
+            ],
+        )
+        yield first_chunk.model_dump_json()
+
+        # Intermediate chunks
+        for i, word in enumerate(words):
+            word_str = word if i == 0 else f" {word}"
+            if token_delay > 0:
+                await asyncio.sleep(token_delay)
+            chunk = ChatCompletionChunk(
+                id=chunk_id,
+                model=model,
+                choices=[
+                    ChatCompletionChunkChoice(
+                        index=0,
+                        delta=ChatCompletionChunkDelta(content=word_str),
+                        finish_reason=None,
+                    )
+                ],
+            )
+            yield chunk.model_dump_json()
+
+        # Final chunk
+        final_chunk = ChatCompletionChunk(
+            id=chunk_id,
+            model=model,
+            choices=[
+                ChatCompletionChunkChoice(
+                    index=0,
+                    delta=ChatCompletionChunkDelta(),
+                    finish_reason="stop",
+                )
+            ],
+        )
+        yield final_chunk.model_dump_json()
+
+        # End of stream sentinel
+        yield "[DONE]"
 
     async def health_check(self) -> bool:
         """Mock provider is always healthy."""

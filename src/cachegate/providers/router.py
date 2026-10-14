@@ -19,8 +19,10 @@ from typing import Any
 import structlog
 import yaml
 
+from cachegate.providers.anthropic import AnthropicProvider
 from cachegate.providers.base import Provider
 from cachegate.providers.mock import MockProvider
+from cachegate.providers.openai import OpenAIProvider
 from cachegate.settings import settings
 
 logger = structlog.get_logger(__name__)
@@ -50,13 +52,22 @@ def _load_models_yaml(path: str) -> dict[str, Any]:
 def _resolve_provider(provider_string: str) -> Provider:
     """Instantiate a provider from a ``"<name>/<model>"`` string.
 
-    Supported in Phase 1: ``mock/*`` → :class:`MockProvider`.
-    Others will be added in Phase 2.
+    Supported in Phase 2:
+    - ``mock/*`` -> MockProvider
+    - ``openai/<model>`` -> OpenAIProvider(model=<model>)
+    - ``anthropic/<model>`` -> AnthropicProvider(model=<model>)
     """
-    name_part = provider_string.split("/")[0].lower()
+    parts = provider_string.split("/", 1)
+    name_part = parts[0].lower()
+    model_part = parts[1] if len(parts) > 1 else ""
+
     if name_part == "mock":
         return MockProvider()
-    # Phase 2 will add: openai, anthropic, ollama
+    if name_part == "openai":
+        return OpenAIProvider(model=model_part or "gpt-4o-mini")
+    if name_part == "anthropic":
+        return AnthropicProvider(model=model_part or "claude-3-haiku-20240307")
+
     logger.warning(
         "unknown_provider_falling_back_to_mock",
         provider_string=provider_string,

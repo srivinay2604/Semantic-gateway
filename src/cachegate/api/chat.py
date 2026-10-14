@@ -14,12 +14,14 @@ Phase 4 adds: cache lookup before provider call.
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
+from collections.abc import AsyncIterator
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from cachegate.providers.base import ProviderError
 from cachegate.schemas.internal import InternalMessage, InternalRequest
@@ -49,18 +51,13 @@ router = APIRouter(prefix="/v1", tags=["chat"])
 async def chat_completions(
     request: Request,
     body: ChatCompletionRequest,
-) -> JSONResponse:
+) -> Response:
     """OpenAI-compatible chat completions endpoint.
 
     Validates the request, resolves the model, calls the provider, and
-    returns a response with gateway-specific headers.
+    returns a response with gateway-specific headers (or an SSE stream).
     """
     t0 = time.monotonic()
-
-    # Reject streaming in Phase 1
-    if body.stream:
-        error = OpenAIErrorResponse.streaming_not_supported()
-        return JSONResponse(status_code=400, content=error.model_dump())
 
     # Retrieve request_id set by RequestIdMiddleware
     request_id: str = getattr(request.state, "request_id", str(uuid.uuid4()))
@@ -80,6 +77,7 @@ async def chat_completions(
         model_alias=body.model,
         provider=provider_str,
         num_messages=len(body.messages),
+        stream=body.stream,
     )
 
     # Build internal request
@@ -96,6 +94,50 @@ async def chat_completions(
         stop=body.stop,
         user=body.user,
     )
+
+    # Handle streaming
+    if body.stream:
+        if not provider.supports_streaming:
+            error = OpenAIErrorResponse.streaming_not_supported()
+            return JSONResponse(status_code=400, content=error.model_dump())
+
+        async def sse_event_generator() -> AsyncIterator[str]:
+            try:
+                async for chunk_str in provider.stream_complete(internal_request):
+                    yield f"data: {chunk_str}\n\n"
+            except ProviderError as exc:
+                logger.error(
+                    "streaming_provider_error",
+                    provider=provider_str,
+                    status_code=exc.status_code,
+                    error=str(exc),
+                )
+                err = OpenAIErrorResponse.make(
+                    message=str(exc),
+                    error_type="upstream_error",
+                    code="provider_error",
+                )
+                yield f"data: {json.dumps(err.model_dump())}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as exc:
+                logger.exception(
+                    "unexpected_streaming_error", provider=provider_str, error=str(exc)
+                )
+                yield "data: [DONE]\n\n"
+
+        stream_headers = {
+            "X-Request-Id": request_id,
+            "X-Cache": "MISS",
+            "X-Provider": provider_str,
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+        return StreamingResponse(
+            sse_event_generator(),
+            media_type="text/event-stream",
+            headers=stream_headers,
+        )
 
     # Call provider
     try:

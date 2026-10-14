@@ -46,7 +46,13 @@ class Settings(BaseSettings):
     # Provider settings
     # -------------------------------------------------------------------------
     openai_api_key: str = Field(default="", description="OpenAI API key (Phase 2)")
+    openai_base_url: str = Field(
+        default="https://api.openai.com/v1", description="OpenAI API base URL"
+    )
     anthropic_api_key: str = Field(default="", description="Anthropic API key (Phase 2)")
+    anthropic_base_url: str = Field(
+        default="https://api.anthropic.com/v1", description="Anthropic API base URL"
+    )
     provider_timeout_seconds: float = Field(
         default=30.0, description="Upstream provider request timeout"
     )

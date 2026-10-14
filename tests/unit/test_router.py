@@ -10,7 +10,9 @@ Tests cover:
 
 from __future__ import annotations
 
+from cachegate.providers.anthropic import AnthropicProvider
 from cachegate.providers.mock import MockProvider
+from cachegate.providers.openai import OpenAIProvider
 from cachegate.providers.router import ProviderRouter
 
 
@@ -20,16 +22,17 @@ class TestProviderRouterAliasResolution:
         assert isinstance(provider, MockProvider)
         assert provider_str == "mock/echo"
 
-    def test_resolves_gpt_4o_mini_to_mock(self, provider_router: ProviderRouter) -> None:
-        """In Phase 1, gpt-4o-mini is mapped to mock/echo."""
+    def test_resolves_gpt_4o_mini_to_openai(self, provider_router: ProviderRouter) -> None:
+        """In Phase 2, gpt-4o-mini maps to OpenAIProvider."""
         provider, provider_str = provider_router.resolve("gpt-4o-mini")
-        assert isinstance(provider, MockProvider)
-        assert "mock" in provider_str
+        assert isinstance(provider, OpenAIProvider)
+        assert provider_str == "openai/gpt-4o-mini"
 
-    def test_resolves_claude_haiku_to_mock(self, provider_router: ProviderRouter) -> None:
-        """In Phase 1, claude-haiku is mapped to mock/echo."""
+    def test_resolves_claude_haiku_to_anthropic(self, provider_router: ProviderRouter) -> None:
+        """In Phase 2, claude-haiku maps to AnthropicProvider."""
         provider, provider_str = provider_router.resolve("claude-haiku")
-        assert isinstance(provider, MockProvider)
+        assert isinstance(provider, AnthropicProvider)
+        assert provider_str == "anthropic/claude-3-haiku-20240307"
 
     def test_unknown_alias_falls_back_to_mock(self, provider_router: ProviderRouter) -> None:
         """An unknown alias should fall back to mock/echo with a warning."""
@@ -42,16 +45,6 @@ class TestProviderRouterAliasResolution:
         p1, _ = provider_router.resolve("mock-fast")
         p2, _ = provider_router.resolve("mock-fast")
         assert p1 is p2
-
-    def test_different_aliases_same_provider_may_share_instance(
-        self, provider_router: ProviderRouter
-    ) -> None:
-        """If two aliases resolve to the same provider string, they share an instance."""
-        p1, str1 = provider_router.resolve("mock-fast")
-        p2, str2 = provider_router.resolve("gpt-4o-mini")
-        # Both are mock/echo in Phase 1
-        if str1 == str2:
-            assert p1 is p2
 
 
 class TestProviderRouterListing:
