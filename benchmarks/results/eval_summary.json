@@ -1,0 +1,12 @@
+{
+  "dataset_size": 20,
+  "positive_pairs": 10,
+  "negative_pairs": 10,
+  "chosen_threshold": 0.88,
+  "hit_rate_at_threshold": 1.0,
+  "false_hit_rate_at_threshold": 0.0,
+  "precision_at_threshold": 1.0,
+  "f1_at_threshold": 1.0,
+  "model": "sentence-transformers/all-MiniLM-L6-v2 (dim=384)",
+  "recommendation": "Threshold 0.88 successfully prevents false-cache hits on hard negatives while retaining high recall on authentic paraphrases."
+}

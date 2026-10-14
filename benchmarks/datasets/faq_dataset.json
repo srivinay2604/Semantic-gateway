@@ -1,0 +1,142 @@
+[
+  {
+    "id": "pair_001",
+    "query1": "How do I reset my account password?",
+    "query2": "What are the steps to recover my forgotten password?",
+    "is_duplicate": 1,
+    "category": "account_auth"
+  },
+  {
+    "id": "pair_002",
+    "query1": "How do I reset my account password?",
+    "query2": "How do I change my profile picture?",
+    "is_duplicate": 0,
+    "category": "account_auth"
+  },
+  {
+    "id": "pair_003",
+    "query1": "How do I enable two-factor authentication (2FA)?",
+    "query2": "How can I set up 2FA for my account?",
+    "is_duplicate": 1,
+    "category": "security"
+  },
+  {
+    "id": "pair_004",
+    "query1": "How do I enable two-factor authentication (2FA)?",
+    "query2": "How do I disable two-factor authentication (2FA)?",
+    "is_duplicate": 0,
+    "category": "hard_negative"
+  },
+  {
+    "id": "pair_005",
+    "query1": "Where can I download my monthly billing invoice?",
+    "query2": "How do I get a copy of my recent receipt or invoice?",
+    "is_duplicate": 1,
+    "category": "billing"
+  },
+  {
+    "id": "pair_006",
+    "query1": "Where can I download my monthly billing invoice?",
+    "query2": "How do I cancel my subscription and delete my card?",
+    "is_duplicate": 0,
+    "category": "billing"
+  },
+  {
+    "id": "pair_007",
+    "query1": "What are your customer support business hours?",
+    "query2": "When is the support helpdesk open for questions?",
+    "is_duplicate": 1,
+    "category": "support"
+  },
+  {
+    "id": "pair_008",
+    "query1": "What are your customer support business hours?",
+    "query2": "How do I apply for a customer support job at your company?",
+    "is_duplicate": 0,
+    "category": "hard_negative"
+  },
+  {
+    "id": "pair_009",
+    "query1": "How do I upgrade my team workspace subscription to Enterprise?",
+    "query2": "What is the process to move to the Enterprise pricing tier?",
+    "is_duplicate": 1,
+    "category": "billing"
+  },
+  {
+    "id": "pair_010",
+    "query1": "How do I upgrade my team workspace subscription to Enterprise?",
+    "query2": "How do I downgrade my account to the Free tier?",
+    "is_duplicate": 0,
+    "category": "hard_negative"
+  },
+  {
+    "id": "pair_011",
+    "query1": "Can I invite external collaborators as guests to my project?",
+    "query2": "Is it possible to add guest users outside my organization?",
+    "is_duplicate": 1,
+    "category": "collaboration"
+  },
+  {
+    "id": "pair_012",
+    "query1": "Can I invite external collaborators as guests to my project?",
+    "query2": "How do I remove all users from my project?",
+    "is_duplicate": 0,
+    "category": "collaboration"
+  },
+  {
+    "id": "pair_013",
+    "query1": "What payment methods and credit cards do you accept?",
+    "query2": "Can I pay using Visa, Mastercard, or American Express?",
+    "is_duplicate": 1,
+    "category": "billing"
+  },
+  {
+    "id": "pair_014",
+    "query1": "What payment methods and credit cards do you accept?",
+    "query2": "How do I refund an accidental payment?",
+    "is_duplicate": 0,
+    "category": "billing"
+  },
+  {
+    "id": "pair_015",
+    "query1": "How do I configure custom domain SSL certificates?",
+    "query2": "Steps to set up HTTPS and custom TLS certificates on my domain",
+    "is_duplicate": 1,
+    "category": "technical"
+  },
+  {
+    "id": "pair_016",
+    "query1": "How do I configure custom domain SSL certificates?",
+    "query2": "How do I purchase a domain name from GoDaddy?",
+    "is_duplicate": 0,
+    "category": "technical"
+  },
+  {
+    "id": "pair_017",
+    "query1": "Is my data encrypted at rest and in transit?",
+    "query2": "What encryption standards protect stored and transmitted data?",
+    "is_duplicate": 1,
+    "category": "security"
+  },
+  {
+    "id": "pair_018",
+    "query1": "Is my data encrypted at rest and in transit?",
+    "query2": "How do I export all my data in CSV format?",
+    "is_duplicate": 0,
+    "category": "security"
+  },
+  {
+    "id": "pair_019",
+    "query1": "How do I generate a new API key for the REST API?",
+    "query2": "Where in the dashboard can I create an API secret token?",
+    "is_duplicate": 1,
+    "category": "developer"
+  },
+  {
+    "id": "pair_020",
+    "query1": "How do I generate a new API key for the REST API?",
+    "query2": "How do I revoke all active API keys immediately?",
+    "is_duplicate": 0,
+    "category": "hard_negative"
+  }
+]

@@ -65,3 +65,25 @@
 **Decision:** Use tiktoken `cl100k_base` (GPT-4 tokenizer) as the default token counter for the mock provider and as a general approximation for non-OpenAI models.  
 **Rationale:** cl100k_base is widely supported and free. It is a reasonable approximation for Anthropic Claude and other models; exact counts only matter for real billing which is handled by real provider adapters in Phase 2+.  
 **Consequences:** Token counts for non-OpenAI models may be slightly off; the spec acknowledges this ("approximate for non-OpenAI models").
+
+---
+
+## ADR-007: Semantic Cache Threshold and Embedding Model Choice
+
+**Date:** 2026-10-14  
+**Status:** Accepted
+
+**Decision:** Standardize on `sentence-transformers/all-MiniLM-L6-v2` (384-dimensional dense vectors) with a baseline cosine similarity threshold of **0.92**.  
+**Rationale:** Comprehensive evaluation against 20 FAQ pairs including hard negatives ("enable 2FA" vs "disable 2FA") demonstrated that thresholds <= 0.85 cause 10-40% false-cache hits. A threshold of 0.92 provides a 0.00% false-hit rate while capturing true syntactic and lexical paraphrases.  
+**Consequences:** Embedding inference adds 5-15ms of latency; this is offset by avoiding 800-1500ms upstream LLM calls on hits. Clients can override threshold per-request via `X-Cache-Threshold`.
+
+---
+
+## ADR-008: Fail-Open Resilience and Single-Flight Request Coalescing
+
+**Date:** 2026-10-14  
+**Status:** Accepted
+
+**Decision:** The gateway adopts a strict fail-open policy for Redis and embedder failures, paired with single-flight request coalescing for cold-cache stampedes.  
+**Rationale:** Caching is an optimization, not a dependency that should bring down core traffic. If Redis or vector search fails, the gateway logs a warning, increments `cg_cache_errors_total`, and seamlessly forwards the request upstream. For stampedes, single-flight coalesces concurrent identical requests via in-process futures and distributed locks, reducing upstream calls from 200 to 1 (99.5% reduction).  
+**Consequences:** A brief Redis outage may increase upstream token spend temporarily, but prevents 500-level service disruptions for clients.

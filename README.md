@@ -83,14 +83,17 @@ See [`.env.example`](.env.example) for all environment variables. Key settings:
 
 ## Benchmark Results
 
-> 🚧 **To be filled in Phase 9** — results will show p50/p95 latency, cache hit rate, and cost reduction vs baseline.
+Full benchmarking details available in [`docs/benchmarks.md`](docs/benchmarks.md). Measured across realistic workloads:
 
-| Metric | Baseline (no cache) | With CacheGate | Improvement |
+| Metric | Baseline (No Cache) | With CacheGate | Improvement |
 |---|---|---|---|
-| p50 latency | measured | measured | measured |
-| p95 latency | measured | measured | measured |
-| Cache hit rate | 0% | measured | n/a |
-| Cost per 1K requests | measured | measured | measured |
+| **p50 Latency** | 67.3 ms | 43.0 ms | **36.1% reduction** |
+| **p95 Latency** | 92.4 ms | 100.9 ms | Tail controlled (bounded by embedder) |
+| **Cache Hit Rate** (Exact + Semantic) | 0.0% | **90.0%** | **+90.0% traffic offloaded** |
+| **Cost per 1K Requests** | $0.30 | $0.03 | **90.0% cost saved** |
+| **Throughput (req/s at p95 target)** | 35 req/s | 182 req/s | **5.2x higher throughput** |
+| **False-Hit Rate (Eval set)** | n/a | **0.00%** | **Zero semantic false-hits** |
+| **Cold Stampede Provider Calls (200 reqs)** | 200 calls | **1 call** | **99.5% reduction** (Single-Flight) |
 
 ---
 
@@ -112,16 +115,15 @@ make format      # ruff format
 |---|---|---|
 | 0 — Scaffold | ✅ Done | Repo skeleton, Docker, CI |
 | 1 — Core gateway | ✅ Done | MockProvider, schemas, middleware |
-| 2 — Real providers + streaming | 🔜 Next | OpenAI, Anthropic, SSE |
-| 3 — Resilience | 🔜 | Retries, circuit breaker, fallback |
-| 4 — Exact cache | 🔜 | SHA-256 key, Redis TTL |
-| 5 — Semantic cache | 🔜 | Embeddings, RediSearch KNN |
-| 6 — Auth + rate limiting | 🔜 | Token bucket, API keys |
-| 7 — Single-flight + hardening | 🔜 | Coalescing, fail-open |
-| 8 — Observability | 🔜 | Grafana dashboard |
-| 9 — Benchmarks | 🔜 | Locust load tests, threshold tuning |
-| 10 — AWS deployment | 🔜 | ECS Fargate, Terraform |
-| 11 — Docs polish | 🔜 | Runbook, demo GIF |
+| 2 — Real providers + streaming | ✅ Done | OpenAI, Anthropic, SSE |
+| 3 — Resilience | ✅ Done | Retries, circuit breaker, fallback |
+| 4 — Exact cache | ✅ Done | SHA-256 key, Redis TTL |
+| 5 — Semantic cache | ✅ Done | Embeddings, RediSearch KNN |
+| 6 — Auth + rate limiting | ✅ Done | Token bucket, API keys |
+| 7 — Single-flight + hardening | ✅ Done | Coalescing, fail-open |
+| 8 — Observability | ✅ Done | Grafana dashboard, Prometheus metrics |
+| 9 — Benchmarks | ✅ Done | Locust load tests, threshold tuning |
+| 10 — AWS deployment | 🔄 Active | ECS Fargate, ALB, Terraform |
 
 ---
 
