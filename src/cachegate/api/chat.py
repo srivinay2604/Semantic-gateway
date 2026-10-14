@@ -23,6 +23,8 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from cachegate.cache.keys import compute_exact_request_hash
+from cachegate.cache.single_flight import SingleFlight
 from cachegate.providers.base import ProviderError
 from cachegate.schemas.internal import InternalMessage, InternalRequest, InternalResponse
 from cachegate.schemas.openai import (
@@ -33,6 +35,7 @@ from cachegate.schemas.openai import (
     OpenAIErrorResponse,
     UsageInfo,
 )
+from cachegate.settings import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -113,11 +116,16 @@ async def chat_completions(
     cache_header = "MISS"
 
     if cache_manager is not None:
-        cached_response, cache_header = await cache_manager.get(
-            internal_request,
-            headers=request.headers,
-            tenant=tenant_id,
-        )
+        try:
+            cached_response, cache_header = await cache_manager.get(
+                internal_request,
+                headers=request.headers,
+                tenant=tenant_id,
+            )
+        except Exception as exc:
+            logger.warning("cache_lookup_failed_failopen", error=str(exc))
+            cached_response = None
+            cache_header = "MISS"
 
     # Parse custom TTL header if provided
     custom_ttl: int | None = None
@@ -311,14 +319,52 @@ async def chat_completions(
         )
 
     # Call provider with resilience (retries, circuit breaker, fallback chain)
-    try:
+    # and single-flight coalescing (Phase 7 stampede protection)
+    single_flight: SingleFlight | None = getattr(request.app.state, "single_flight", None)
+
+    async def _call_provider_and_cache() -> tuple[InternalResponse, str]:
         if hasattr(provider_router, "execute_with_resilience"):
-            internal_response, served_provider = await provider_router.execute_with_resilience(
-                internal_request
-            )
+            resp, s_prov = await provider_router.execute_with_resilience(internal_request)
         else:
-            internal_response = await provider.complete(internal_request)
-            served_provider = provider_str
+            resp = await provider.complete(internal_request)
+            s_prov = provider_str
+
+        # Eagerly store into cache so stampede followers find it immediately
+        if cache_manager is not None and cache_header != "BYPASS":
+            try:
+                await cache_manager.put(
+                    internal_request,
+                    resp,
+                    tenant=tenant_id,
+                    ttl_seconds=custom_ttl,
+                )
+            except Exception as exc:
+                logger.warning("singleflight_cache_put_failed", error=str(exc))
+        return resp, s_prov
+
+    async def _lookup_cache_stampede() -> tuple[InternalResponse, str] | None:
+        if cache_manager is None:
+            return None
+        cached, _tier = await cache_manager.get(
+            internal_request, headers=request.headers, tenant=tenant_id
+        )
+        if cached is not None:
+            return cached, cached.provider
+        return None
+
+    try:
+        if single_flight is not None and cache_header != "BYPASS" and settings.singleflight_enabled:
+            req_hash = compute_exact_request_hash(internal_request)
+            flight_key = f"{tenant_id}:{body.model}:{req_hash}"
+            (internal_response, served_provider), coalesced = await single_flight.execute(
+                key=flight_key,
+                fn=_call_provider_and_cache,
+                cache_lookup_fn=_lookup_cache_stampede,
+            )
+            if coalesced:
+                cache_header = "HIT-EXACT"
+        else:
+            internal_response, served_provider = await _call_provider_and_cache()
     except ProviderError as exc:
         logger.error(
             "provider_error_fallbacks_exhausted",
@@ -339,25 +385,16 @@ async def chat_completions(
         logger.exception("unexpected_provider_error", provider=provider_str, error=str(exc))
         raise HTTPException(status_code=500, detail="Internal server error") from exc
 
-    # Store into cache in background if cacheable (spec §9.4, §9.7)
-    if cache_manager is not None and cache_header != "BYPASS":
-        background_tasks.add_task(
-            cache_manager.put,
-            internal_request,
-            internal_response,
-            tenant=tenant_id,
-            ttl_seconds=custom_ttl,
-        )
-
     # Record usage in background
     if usage_tracker is not None:
+        is_hit = cache_header in ("HIT-EXACT", "HIT-SEMANTIC")
         background_tasks.add_task(
             usage_tracker.record_request,
             key_id=key_id,
             model=body.model,
             prompt_tokens=internal_response.usage.prompt_tokens,
             completion_tokens=internal_response.usage.completion_tokens,
-            is_hit=False,
+            is_hit=is_hit,
         )
 
     # Build OpenAI-compatible response

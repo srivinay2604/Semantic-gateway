@@ -34,6 +34,7 @@ from pydantic import ValidationError
 
 from cachegate.api import admin, chat, health, models
 from cachegate.cache.manager import CacheManager
+from cachegate.cache.single_flight import SingleFlight
 from cachegate.cache.stores.base import ExactCacheStore, VectorStore
 from cachegate.cache.stores.redis_store import RedisExactStore, RedisVectorStore
 from cachegate.embeddings.base import BaseEmbedder
@@ -42,6 +43,7 @@ from cachegate.middleware.auth import AuthMiddleware, KeyStore
 from cachegate.middleware.metrics import MetricsMiddleware
 from cachegate.middleware.rate_limit import RateLimitMiddleware
 from cachegate.middleware.request_id import RequestIdMiddleware
+from cachegate.middleware.size_limit import RequestSizeLimitMiddleware
 from cachegate.observability.logging import configure_logging
 from cachegate.providers.router import ProviderRouter
 from cachegate.schemas.openai import OpenAIErrorResponse
@@ -119,6 +121,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.key_store = KeyStore()
     app.state.usage_tracker = UsageTracker()
     app.state.rate_limiter = MemoryTokenBucketRateLimiter()
+    redis_client = getattr(cache_store, "_client", None)
+    app.state.single_flight = SingleFlight(redis_client=redis_client)
 
     logger.info("cachegate_ready", host="0.0.0.0", port=8000)
 
@@ -165,6 +169,7 @@ def create_app() -> FastAPI:
     application.add_middleware(RateLimitMiddleware)
     application.add_middleware(AuthMiddleware)
     application.add_middleware(MetricsMiddleware)
+    application.add_middleware(RequestSizeLimitMiddleware)
     application.add_middleware(RequestIdMiddleware)
 
     # ---- Routers ----

@@ -19,6 +19,7 @@ from cachegate.cache.keys import (
 from cachegate.cache.normalize import extract_last_user_message
 from cachegate.cache.policy import is_request_cacheable, is_response_cacheable
 from cachegate.cache.stores.base import ExactCacheStore, VectorStore
+from cachegate.observability.metrics import cache_errors_total
 from cachegate.schemas.internal import CacheResult, InternalRequest, InternalResponse, InternalUsage
 from cachegate.settings import Settings
 from cachegate.settings import settings as default_settings
@@ -95,6 +96,7 @@ class CacheManager:
                 )
                 return exact_hit, "HIT-EXACT"
         except Exception as exc:
+            cache_errors_total.labels(operation="exact_get").inc()
             logger.warning("exact_cache_lookup_failed", error=str(exc))
 
         # ---------------------------------------------------------------------
@@ -176,6 +178,7 @@ class CacheManager:
                     cache_similarity=round(top.similarity, 4),
                 )
         except Exception as exc:
+            cache_errors_total.labels(operation="semantic_search").inc()
             logger.warning("semantic_cache_lookup_failed", error=str(exc))
 
         return None
@@ -213,6 +216,7 @@ class CacheManager:
             await self.exact_store.set(exact_key, response, ttl)
             logger.debug("exact_cache_stored", key=exact_key, ttl=ttl)
         except Exception as exc:
+            cache_errors_total.labels(operation="exact_set").inc()
             logger.warning("exact_cache_write_failed", error=str(exc))
 
         # 2. Semantic Cache Write (Phase 5)
@@ -244,4 +248,5 @@ class CacheManager:
                     )
                     logger.debug("semantic_cache_stored", entry_id=entry_id)
                 except Exception as exc:
+                    cache_errors_total.labels(operation="semantic_upsert").inc()
                     logger.warning("semantic_cache_write_failed", error=str(exc))

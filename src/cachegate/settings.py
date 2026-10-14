@@ -121,8 +121,16 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
-    # Config paths
+    # Hardening & Limits (Phase 7)
     # -------------------------------------------------------------------------
+    max_request_size_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        description="Maximum request payload size in bytes (default 10MB)",
+    )
+    singleflight_enabled: bool = Field(
+        default=True,
+        description="Enable single-flight request coalescing for identical requests",
+    )
     models_config_path: str = Field(
         default="config/models.yaml",
         description="Path to model alias config YAML",
