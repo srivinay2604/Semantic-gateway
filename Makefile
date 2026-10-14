@@ -10,8 +10,8 @@ install:
 # Development
 # ---------------------------------------------------------------------------
 dev:
-	uvicorn cachegate.main:app --reload --host 0.0.0.0 --port 8000 \
-		--log-level info --factory
+	PYTHONPATH=src uvicorn cachegate.main:create_app --reload --reload-dir src --reload-dir config \
+		--host 0.0.0.0 --port 8000 --log-level info --factory
 
 # ---------------------------------------------------------------------------
 # Tests

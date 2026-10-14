@@ -138,9 +138,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Public endpoints that bypass authentication
         if (
-            path in ("/healthz", "/readyz", "/metrics", "/docs", "/redoc", "/openapi.json")
+            path in ("/", "/ui", "/ui/", "/healthz", "/readyz", "/metrics", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
             or path.startswith("/healthz")
             or path.startswith("/readyz")
+            or path.startswith("/ui")
         ):
             return await call_next(request)
 

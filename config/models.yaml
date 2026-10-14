@@ -14,6 +14,27 @@ models:
     primary: mock/echo
     fallbacks: []
 
+  # Local free Ollama models
+  llama3.2:
+    primary: ollama/llama3.2
+    fallbacks: [mock/echo]
+
+  qwen2.5:
+    primary: ollama/qwen2.5:3b
+    fallbacks: [mock/echo]
+
+  deepseek-r1:
+    primary: ollama/deepseek-r1:8b
+    fallbacks: [mock/echo]
+
+  gemma2:
+    primary: ollama/gemma2:2b
+    fallbacks: [mock/echo]
+
+  ollama:
+    primary: ollama/llama3.2
+    fallbacks: [mock/echo]
+
   # OpenAI GPT-4o-mini
   gpt-4o-mini:
     primary: openai/gpt-4o-mini

@@ -32,7 +32,7 @@ from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import ValidationError
 
-from cachegate.api import admin, chat, health, models
+from cachegate.api import admin, chat, health, models, ui
 from cachegate.cache.manager import CacheManager
 from cachegate.cache.single_flight import SingleFlight
 from cachegate.cache.stores.base import ExactCacheStore, VectorStore
@@ -88,26 +88,66 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         embedder = MockEmbedder(dim=settings.embedding_dim)
     else:
         cache_store = RedisExactStore(redis_url=settings.redis_url)
-        vector_store = RedisVectorStore(
-            redis_url=settings.redis_url,
-            dim=settings.embedding_dim,
-        )
-        try:
-            await vector_store.setup_index()
-        except Exception as exc:
-            logger.warning("vector_index_setup_warning", error=str(exc))
 
+        # 1. Resolve Embedder: SentenceTransformers -> Ollama nomic-embed-text -> MockEmbedder
+        embedder = None
         try:
+            import importlib
+
+            importlib.import_module("sentence_transformers")
             from cachegate.embeddings.sbert import SentenceTransformerEmbedder
 
             embedder = SentenceTransformerEmbedder(
                 model_name=settings.embedding_model,
                 dim=settings.embedding_dim,
             )
+            logger.info("using_sentence_transformers_embedder", model=settings.embedding_model)
         except Exception:
+            embedder = None
+
+        if embedder is None:
+            try:
+                import httpx
+
+                base_url = getattr(settings, "ollama_base_url", "http://localhost:11434")
+                clean_url = base_url.rstrip("/")
+                if clean_url.endswith("/v1"):
+                    clean_url = clean_url[:-3]
+                async with httpx.AsyncClient(timeout=1.5) as client:
+                    resp = await client.get(f"{clean_url}/api/tags")
+                    if resp.status_code == 200 and "nomic-embed-text" in resp.text:
+                        from cachegate.embeddings.ollama_embed import OllamaEmbedder
+
+                        embedder = OllamaEmbedder(
+                            base_url=clean_url,
+                            model="nomic-embed-text",
+                            dim=768,
+                        )
+                        logger.info("using_ollama_embedder", model="nomic-embed-text", dim=768)
+            except Exception:
+                embedder = None
+
+        if embedder is None:
             from cachegate.embeddings.sbert import MockEmbedder
 
             embedder = MockEmbedder(dim=settings.embedding_dim)
+            logger.info("using_mock_embedder", dim=settings.embedding_dim)
+
+        # 2. Resolve Vector Store: Redis with RediSearch -> MemoryVectorStore fallback
+        vector_store = RedisVectorStore(
+            redis_url=settings.redis_url,
+            dim=embedder.dim,
+        )
+        try:
+            await vector_store.setup_index()
+        except Exception as exc:
+            logger.warning(
+                "redis_vector_index_unavailable_using_memory_store",
+                error=str(exc),
+            )
+            from cachegate.cache.stores.memory_store import MemoryVectorStore
+
+            vector_store = MemoryVectorStore()
 
     app.state.cache_store = cache_store
     app.state.vector_store = vector_store
@@ -118,10 +158,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         embedder=embedder,
         settings=settings,
     )
-    app.state.key_store = KeyStore()
-    app.state.usage_tracker = UsageTracker()
-    app.state.rate_limiter = MemoryTokenBucketRateLimiter()
     redis_client = getattr(cache_store, "_client", None)
+    app.state.key_store = KeyStore(redis_client=redis_client)
+    app.state.usage_tracker = UsageTracker(redis_client=redis_client)
+    app.state.rate_limiter = MemoryTokenBucketRateLimiter()
     app.state.single_flight = SingleFlight(redis_client=redis_client)
 
     logger.info("cachegate_ready", host="0.0.0.0", port=8000)
@@ -173,6 +213,7 @@ def create_app() -> FastAPI:
     application.add_middleware(RequestIdMiddleware)
 
     # ---- Routers ----
+    application.include_router(ui.router)
     application.include_router(health.router)
     application.include_router(models.router)
     application.include_router(chat.router)

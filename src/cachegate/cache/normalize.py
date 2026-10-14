@@ -56,7 +56,16 @@ def canonical_request_dict(request: InternalRequest | ChatCompletionRequest) -> 
 
     canonical_messages: list[dict[str, Any]] = []
     for msg in raw_messages:
-        m_dict: dict[str, Any] = {"role": msg.role, "content": msg.content}
+        content = msg.content
+        if content:
+            content = (
+                content.replace("’", "'")
+                .replace("‘", "'")
+                .replace("“", '"')
+                .replace("”", '"')
+            )
+            content = _WHITESPACE_RE.sub(" ", content).strip()
+        m_dict: dict[str, Any] = {"role": msg.role, "content": content}
         if msg.name is not None:
             m_dict["name"] = msg.name
         canonical_messages.append(m_dict)

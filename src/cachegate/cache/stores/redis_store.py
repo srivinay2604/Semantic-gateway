@@ -185,8 +185,10 @@ class RedisVectorStore(VectorStore):
                 await self._client.execute_command(*cmd)  # type: ignore[no-untyped-call]
             else:
                 logger.warning("redis_index_info_error", error=str(exc))
+                raise
         except Exception as exc:
             logger.warning("redis_setup_index_unexpected_error", error=str(exc))
+            raise
 
     async def search(
         self,

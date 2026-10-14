@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     anthropic_base_url: str = Field(
         default="https://api.anthropic.com/v1", description="Anthropic API base URL"
     )
+    ollama_base_url: str = Field(
+        default="http://localhost:11434/v1", description="Ollama OpenAI-compatible base URL"
+    )
     provider_timeout_seconds: float = Field(
         default=30.0, description="Upstream provider request timeout"
     )

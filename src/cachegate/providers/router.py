@@ -70,6 +70,13 @@ def _resolve_provider(provider_string: str) -> Provider:
         return OpenAIProvider(model=model_part or "gpt-4o-mini")
     if name_part == "anthropic":
         return AnthropicProvider(model=model_part or "claude-3-haiku-20240307")
+    if name_part == "ollama":
+        return OpenAIProvider(
+            model=model_part or "llama3.2",
+            api_key="ollama",
+            base_url=settings.ollama_base_url,
+            timeout_seconds=60.0,
+        )
 
     logger.warning(
         "unknown_provider_falling_back_to_mock",
