@@ -1,0 +1,16 @@
+.git
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+htmlcov
+.coverage
+coverage.xml
+.mypy_cache
+.ruff_cache
+.env
+*.env.local
+.DS_Store
+benchmarks/results/
+infra/terraform/

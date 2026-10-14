@@ -1,0 +1,30 @@
+# Pricing table for cost tracking and cost-saved calculations.
+#
+# IMPORTANT: Verify these values against provider pricing pages before reporting costs.
+# Prices are in USD per 1 million tokens.
+#
+# Updated: 2024-10-xx (placeholder — replace with verified figures)
+
+models:
+  # OpenAI
+  gpt-4o-mini:
+    input_per_1m: 0.15
+    output_per_1m: 0.60
+
+  gpt-4o:
+    input_per_1m: 2.50
+    output_per_1m: 10.00
+
+  # Anthropic
+  claude-haiku-20240307:
+    input_per_1m: 0.25
+    output_per_1m: 1.25
+
+  claude-sonnet-20240229:
+    input_per_1m: 3.00
+    output_per_1m: 15.00
+
+  # Mock provider — zero cost (for testing)
+  mock/echo:
+    input_per_1m: 0.0
+    output_per_1m: 0.0

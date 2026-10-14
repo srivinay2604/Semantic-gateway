@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main", "develop"]
+
+jobs:
+  test:
+    name: Lint · Type-check · Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Checkout
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Python setup with dependency caching
+      # -----------------------------------------------------------------------
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # -----------------------------------------------------------------------
+      # Lint
+      # -----------------------------------------------------------------------
+      - name: Ruff lint check
+        run: ruff check src/ tests/
+
+      - name: Ruff format check
+        run: ruff format --check src/ tests/
+
+      # -----------------------------------------------------------------------
+      # Type check
+      # -----------------------------------------------------------------------
+      - name: Mypy type check
+        run: mypy src/
+
+      # -----------------------------------------------------------------------
+      # Tests with coverage
+      # -----------------------------------------------------------------------
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ -v \
+            --cov=src/cachegate \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=85
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+      # -----------------------------------------------------------------------
+      # Docker build validation (build only, no push on PRs)
+      # -----------------------------------------------------------------------
+      - name: Build Docker image
+        run: docker build --target final -t cachegate:ci .

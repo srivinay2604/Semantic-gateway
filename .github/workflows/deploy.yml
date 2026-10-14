@@ -1,0 +1,16 @@
+# Placeholder — Phase 10 fills this in.
+# Deploy workflow: authenticate to AWS via OIDC, build+push to ECR,
+# update ECS task definition, rolling deploy, smoke test.
+name: Deploy
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  deploy:
+    name: Deploy to AWS ECS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder
+        run: echo "Phase 10 deploy workflow not yet implemented."

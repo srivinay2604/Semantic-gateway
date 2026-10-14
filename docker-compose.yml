@@ -1,0 +1,90 @@
+services:
+  # ---------------------------------------------------------------------------
+  # CacheGate gateway
+  # ---------------------------------------------------------------------------
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    image: cachegate:dev
+    container_name: cachegate_gateway
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: dev
+      LOG_LEVEL: INFO
+      REDIS_URL: redis://redis-stack:6379/0
+      MOCK_LATENCY_MS: 800
+      MOCK_LATENCY_JITTER_MS: 200
+      MOCK_ERROR_RATE: "0.0"
+      CACHE_ENABLED: "true"
+      RATE_LIMIT_FAIL_OPEN: "true"
+    env_file:
+      - .env.example
+    depends_on:
+      redis-stack:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Redis Stack  (exact cache + vector index + rate limits)
+  # ---------------------------------------------------------------------------
+  redis-stack:
+    image: redis/redis-stack-server:7.4.0-v1
+    container_name: cachegate_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Prometheus
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    container_name: cachegate_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/grafana/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Grafana
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:12.0.2
+    container_name: cachegate_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  grafana_data:

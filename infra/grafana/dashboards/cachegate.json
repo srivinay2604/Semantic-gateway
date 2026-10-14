@@ -1,0 +1,20 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "annotations": { "list": [] },
+  "description": "CacheGate — LLM Gateway observability dashboard (stub, Phase 8 fills panels)",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "panels": [],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "tags": ["cachegate", "llm", "gateway"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "CacheGate Gateway",
+  "uid": "cachegate-main",
+  "version": 1
+}
