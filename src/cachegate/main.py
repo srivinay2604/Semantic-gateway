@@ -34,8 +34,9 @@ from pydantic import ValidationError
 
 from cachegate.api import admin, chat, health, models
 from cachegate.cache.manager import CacheManager
-from cachegate.cache.stores.base import ExactCacheStore
-from cachegate.cache.stores.redis_store import RedisExactStore
+from cachegate.cache.stores.base import ExactCacheStore, VectorStore
+from cachegate.cache.stores.redis_store import RedisExactStore, RedisVectorStore
+from cachegate.embeddings.base import BaseEmbedder
 from cachegate.middleware.metrics import MetricsMiddleware
 from cachegate.middleware.request_id import RequestIdMiddleware
 from cachegate.observability.logging import configure_logging
@@ -67,17 +68,50 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Load provider router (reads config/models.yaml)
     app.state.provider_router = ProviderRouter(settings.models_config_path)
 
-    # Initialize CacheManager
+    # Initialize CacheManager with Exact and Vector Stores
     cache_store: ExactCacheStore
+    vector_store: VectorStore
+    embedder: BaseEmbedder
+
     if settings.app_env == "test":
-        from cachegate.cache.stores.memory_store import MemoryExactStore
+        from cachegate.cache.stores.memory_store import MemoryExactStore, MemoryVectorStore
+        from cachegate.embeddings.sbert import MockEmbedder
 
         cache_store = MemoryExactStore()
+        vector_store = MemoryVectorStore()
+        embedder = MockEmbedder(dim=settings.embedding_dim)
     else:
         cache_store = RedisExactStore(redis_url=settings.redis_url)
+        vector_store = RedisVectorStore(
+            redis_url=settings.redis_url,
+            dim=settings.embedding_dim,
+        )
+        try:
+            await vector_store.setup_index()
+        except Exception as exc:
+            logger.warning("vector_index_setup_warning", error=str(exc))
+
+        try:
+            from cachegate.embeddings.sbert import SentenceTransformerEmbedder
+
+            embedder = SentenceTransformerEmbedder(
+                model_name=settings.embedding_model,
+                dim=settings.embedding_dim,
+            )
+        except Exception:
+            from cachegate.embeddings.sbert import MockEmbedder
+
+            embedder = MockEmbedder(dim=settings.embedding_dim)
 
     app.state.cache_store = cache_store
-    app.state.cache_manager = CacheManager(exact_store=cache_store, settings=settings)
+    app.state.vector_store = vector_store
+    app.state.embedder = embedder
+    app.state.cache_manager = CacheManager(
+        exact_store=cache_store,
+        vector_store=vector_store,
+        embedder=embedder,
+        settings=settings,
+    )
 
     logger.info("cachegate_ready", host="0.0.0.0", port=8000)
 
@@ -88,6 +122,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if hasattr(app.state, "cache_store") and app.state.cache_store is not None:
         try:
             await app.state.cache_store.close()
+        except Exception:
+            pass
+    if hasattr(app.state, "vector_store") and app.state.vector_store is not None:
+        try:
+            await app.state.vector_store.close()
         except Exception:
             pass
 
