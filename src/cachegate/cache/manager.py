@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import Mapping
 from typing import Any
@@ -19,7 +20,13 @@ from cachegate.cache.keys import (
 from cachegate.cache.normalize import extract_last_user_message
 from cachegate.cache.policy import is_request_cacheable, is_response_cacheable
 from cachegate.cache.stores.base import ExactCacheStore, VectorStore
-from cachegate.observability.metrics import cache_errors_total
+from cachegate.observability.metrics import (
+    cache_errors_total,
+    cache_hits_total,
+    cache_lookup_duration_seconds,
+    cache_similarity,
+    embedding_duration_seconds,
+)
 from cachegate.schemas.internal import CacheResult, InternalRequest, InternalResponse, InternalUsage
 from cachegate.settings import Settings
 from cachegate.settings import settings as default_settings
@@ -84,10 +91,13 @@ class CacheManager:
             version=self.settings.cache_schema_version,
         )
 
+        t_exact = time.monotonic()
         try:
             exact_hit = await self.exact_store.get(key)
+            cache_lookup_duration_seconds.labels(tier="exact").observe(time.monotonic() - t_exact)
             if exact_hit is not None:
                 exact_hit.cache_result = CacheResult.HIT_EXACT
+                cache_hits_total.labels(tier="exact", tenant=tenant).inc()
                 logger.info(
                     "exact_cache_hit",
                     model=request.model_alias,
@@ -137,9 +147,13 @@ class CacheManager:
                 except ValueError:
                     pass
 
+        t_sem = time.monotonic()
         try:
             # Generate embedding
+            t_emb = time.monotonic()
             query_vector = await self.embedder.embed(last_user_msg)
+            embedding_duration_seconds.observe(time.monotonic() - t_emb)
+
             sys_hash = compute_system_hash(request)
             params_hash = compute_params_hash(request)
             ctx_hash = compute_context_hash(request)
@@ -153,9 +167,12 @@ class CacheManager:
                 ctx_hash=ctx_hash,
                 top_k=self.settings.semantic_top_k,
             )
+            cache_lookup_duration_seconds.labels(tier="semantic").observe(time.monotonic() - t_sem)
 
             if results and results[0].similarity >= threshold:
                 top = results[0]
+                cache_hits_total.labels(tier="semantic", tenant=tenant).inc()
+                cache_similarity.observe(round(top.similarity, 4))
                 logger.info(
                     "semantic_cache_hit",
                     model=request.model_alias,

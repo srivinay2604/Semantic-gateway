@@ -17,7 +17,10 @@ from enum import StrEnum
 
 import structlog
 
-from cachegate.observability.metrics import circuit_breaker_state
+from cachegate.observability.metrics import (
+    circuit_breaker_state,
+    circuit_breaker_state_gauge,
+)
 from cachegate.providers.base import ProviderError
 from cachegate.settings import settings
 
@@ -154,5 +157,11 @@ class CircuitBreaker:
                 circuit_breaker_state.labels(
                     provider=self.provider_name, state=new_state.value
                 ).inc()
+                state_num = (
+                    0
+                    if new_state == CircuitState.CLOSED
+                    else (1 if new_state == CircuitState.HALF_OPEN else 2)
+                )
+                circuit_breaker_state_gauge.labels(provider=self.provider_name).set(state_num)
             except Exception:
                 pass

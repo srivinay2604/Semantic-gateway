@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from prometheus_client import (
     Counter,
+    Gauge,
     Histogram,
     make_asgi_app,
 )
@@ -63,6 +64,24 @@ cache_lookup_duration_seconds = Histogram(
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1),
 )
 
+embedding_duration_seconds = Histogram(
+    "cg_embedding_duration_seconds",
+    "Embedding generation duration in seconds",
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5),
+)
+
+cache_similarity = Histogram(
+    "cg_cache_similarity",
+    "Cosine similarity score distribution of cache hits",
+    buckets=(0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.92, 0.95, 0.98, 1.0),
+)
+
+circuit_breaker_state_gauge = Gauge(
+    "cg_circuit_breaker_state",
+    "Current circuit breaker state (0=closed, 1=half-open, 2=open)",
+    labelnames=["provider"],
+)
+
 # Phase 6+ — rate limiting
 rate_limited_total = Counter(
     "cg_rate_limited_total",
@@ -95,7 +114,7 @@ cost_saved_usd_total = Counter(
 )
 
 circuit_breaker_state = Counter(
-    "cg_circuit_breaker_state_total",
+    "cg_circuit_breaker_transitions_total",
     "Circuit breaker state change events",
     labelnames=["provider", "state"],
 )
